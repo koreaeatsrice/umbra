@@ -147,8 +147,7 @@ public class Umbra {
                 return;
             }
             if (getBlockMethod == null && getTileEntityMethod == null) {
-                FMLLog.warning(
-                    "Umbra: spawner-exemption UNRESOLVABLE — spawner blocks may be affected (non-fatal)");
+                FMLLog.warning("Umbra: spawner-exemption UNRESOLVABLE — spawner blocks may be affected (non-fatal)");
             }
 
             // FAIL-SAFE: only arm when EVERY component resolved. A half-armed rule
