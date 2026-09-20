@@ -1,0 +1,6 @@
+/*
+ * Dependencies for this mod go here. See the GTNH Gradle documentation for the
+ * supported configurations (api, implementation, compileOnly, runtimeOnly, ...).
+ */
+dependencies {
+}
