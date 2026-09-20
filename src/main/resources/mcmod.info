@@ -1,0 +1,21 @@
+{
+    "modListVersion": 2,
+    "modList": [
+        {
+            "modid": "umbra",
+            "name": "Umbra",
+            "description": "Umbra - modern Minecraft (1.18+) hostile-spawn rules for GTNH 1.7.10, server-side only: Overworld hostiles spawn only in total darkness (block light 0), day-gated sky check, spawner exemption. Joint Space Force build.",
+            "version": "1.1.0",
+            "mcversion": "1.7.10",
+            "url": "",
+            "updateUrl": "",
+            "authorList": [
+                "Uriel"
+            ],
+            "credits": "",
+            "logoFile": "",
+            "screenshots": [],
+            "dependencies": []
+        }
+    ]
+}
