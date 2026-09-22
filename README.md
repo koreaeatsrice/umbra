@@ -5,19 +5,21 @@
 Umbra makes hostile mobs spawn the way they do in modern Minecraft (1.18+)
 instead of vanilla 1.7.10 — mobs belong to the shadows:
 
-- **Overworld hostiles spawn only in total darkness (block light 0)** —
+- **Hostiles spawn only in total darkness (block light 0) in EVERY dimension** —
   torch-lit caves, bases and corridors are safe, like modern Minecraft.
 - **During the day, sky-exposed spots are dead too**; at night the surface
   spawns normally (modern behavior).
 - **Mob spawner blocks are exempt** — dungeons, blaze cages etc. keep working.
-- **Nether and other dimensions are untouched.**
+- **Applies to all dimensions** — Overworld, Nether, End, and any modded
+  dimension follow the same modern rule (lava-lit Nether spots are safe,
+  dark Nether/End terrain still spawns).
 
 Clients need nothing installed (`acceptableRemoteVersions = "*"`).
 
 ## How it works
 
 The mod hooks `LivingSpawnEvent.CheckSpawn` (highest priority) and, for
-Overworld hostiles only, denies spawns where:
+hostile mobs in any dimension, denies spawns where:
 1. block light > 0 (always), or
 2. it is daytime and the spot can see the sky.
 
@@ -34,8 +36,8 @@ RFB runtime (SRG-first), with clear diagnostics:
 - `DENY #N: entity=... dim=... pos=... block=... sky=... day=...` — sampled
   decision log (first 10 denies + every 1000th, first 30 allows).
 
-The mod is **fail-safe**: it only arms when every component resolved; a partial
-state falls back to vanilla behavior and never crashes the server.
+The mod is **fail-safe**: it only arms when the core light checks resolved; a
+partial state falls back to vanilla behavior and never crashes the server.
 
 ## Building
 

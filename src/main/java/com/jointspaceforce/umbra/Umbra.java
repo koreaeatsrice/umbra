@@ -15,13 +15,14 @@ import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Umbra — modern (1.18+) hostile-spawn light rule on 1.7.10, Overworld only.
+ * Umbra — modern (1.18+) hostile-spawn light rule on 1.7.10, ALL dimensions.
  *
- * Overworld hostile mobs may naturally spawn ONLY where:
+ * Hostile mobs may naturally spawn ONLY where:
  * (a) BLOCK light == 0 (torch / glowstone / lava-lit spots are dead), AND
  * (b) SKY light <= 7 (true at night on the surface; always true in caves).
- * Result: torch-lit caves/bases are SAFE; the night surface still spawns; the
- * Nether/End/other dimensions keep vanilla rules (no more empty Nether).
+ * Result: torch-lit caves/bases are SAFE; the night surface still spawns;
+ * the Nether/End/other dimensions follow the same modern rule (lava-lit
+ * Nether spots are safe, dark Nether/End terrain still spawns).
  *
  * Why reflection: GTNH 1.7.10's forge event classes reference the OBFUSCATED vanilla
  * classes at runtime, and there is no MCP-named minecraft jar on disk to compile
@@ -35,7 +36,7 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
  * World field field_73011_w = provider ; WorldProvider field_76574_g = dimensionId
  * net.minecraft.entity.monster.EntityMob resolves via the RFB deobf alias.
  */
-@Mod(modid = Umbra.MODID, name = "Umbra", version = "1.1.0", acceptableRemoteVersions = "*")
+@Mod(modid = Umbra.MODID, name = "Umbra", version = "1.2.0", acceptableRemoteVersions = "*")
 public class Umbra {
 
     public static final String MODID = "umbra";
@@ -56,7 +57,7 @@ public class Umbra {
     private static volatile boolean runtimeFailureLogged = false; // runtime invoke failure logged once
     private static volatile long deniedCount = 0; // spawns denied (log proof)
     private static volatile boolean firstDenyLogged = false;
-    private static volatile boolean armed = false; // true ONLY when every component resolved
+    private static volatile boolean armed = false; // true ONLY when core light checks resolved
     private static volatile int allowSamplesLogged = 0; // ALLOW sampling (first N with values)
     private static volatile Method getWorldTimeMethod; // World.getWorldTime() -> long (day/night clock)
     private static volatile Method getBlockMethod; // World.getBlock(x,y,z) -> Block (spawner exemption)
@@ -107,8 +108,8 @@ public class Umbra {
                 throw new IllegalStateException("EnumSkyBlock constants not found");
             }
 
-            // Dimension gate: World.provider -> WorldProvider.dimensionId.
-            // WorldProvider may hit the same alias gap — handle it, never throw.
+            // Dimension fields (World.provider -> WorldProvider.dimensionId) are
+            // diagnostic-only now — dimOf() in the decision logs. Never throw.
             Class<?> providerClass = null;
             try {
                 providerClass = Class.forName("net.minecraft.world.WorldProvider", false, cl);
@@ -150,25 +151,18 @@ public class Umbra {
                 FMLLog.warning("Umbra: spawner-exemption UNRESOLVABLE — spawner blocks may be affected (non-fatal)");
             }
 
-            // FAIL-SAFE: only arm when EVERY component resolved. A half-armed rule
-            // would deny spawns in the Nether (that exact bug killed it before).
-            if (worldProviderField == null || dimensionIdField == null) {
-                FMLLog.warning(
-                    "Umbra: dimension gate UNRESOLVABLE (provider=%s, dimId=%s) — rule DISARMED (vanilla behavior); method=%s, skyEnum=%s",
-                    worldProviderField,
-                    dimensionIdField,
-                    m.getName(),
-                    skyEnum.getName());
-                return;
-            }
-
+            // Dimension fields are diagnostic-only now (dimOf in logs). The rule
+            // applies to ALL dimensions, so a missing dimension gate must NOT
+            // disarm the mod — the light checks above are what matter.
             armed = true;
             FMLLog.info(
-                "Umbra: ARMED — modern rule live (Overworld hostiles: block light == 0; sky-gate only during DAY; other dims untouched). method=%s, skyEnum=%s, blockConst=%s, skyConst=%s, providerField=OK, dimIdField=OK, hostileCheck=%s, worldTime=%s, block=%s, tileEntity=%s",
+                "Umbra: ARMED — modern rule live (ALL dims: block light == 0; sky-gate only during DAY). method=%s, skyEnum=%s, blockConst=%s, skyConst=%s, providerField=%s, dimIdField=%s, hostileCheck=%s, worldTime=%s, block=%s, tileEntity=%s",
                 m.getName(),
                 skyEnum.getName(),
                 constName(enumSkyBlockBlock),
                 constName(enumSkyBlockSky),
+                worldProviderField != null ? "OK" : "missing",
+                dimensionIdField != null ? "OK" : "missing",
                 entityMobClass != null ? "class" : "namewalk",
                 getWorldTimeMethod,
                 getBlockMethod,
@@ -235,23 +229,6 @@ public class Umbra {
         return null;
     }
 
-    private static boolean isOverworld(Object world) {
-        try {
-            if (worldProviderField == null || dimensionIdField == null) return false;
-            Object provider = worldProviderField.get(world);
-            if (provider == null) return false;
-            return ((Number) dimensionIdField.get(provider)).intValue() == 0;
-        } catch (Throwable t) {
-            if (!runtimeFailureLogged) {
-                runtimeFailureLogged = true;
-                FMLLog.warning(
-                    "Umbra: isOverworld check FAILED at runtime (%s) — dimension gate open (vanilla behavior)",
-                    t.toString());
-            }
-            return false;
-        }
-    }
-
     private static boolean isHostile(Object entity) {
         if (entityMobClass != null) return entityMobClass.isInstance(entity);
         // Fallback when the class alias is missing: walk the REAL superclass chain.
@@ -291,7 +268,7 @@ public class Umbra {
         ensureInit();
         if (!armed) return; // not safely armed -> vanilla
         Object world = event.world;
-        if (world == null || !isOverworld(world)) return; // only the Overworld
+        if (world == null) return; // no world -> vanilla
         if (!isHostile(event.entityLiving)) return; // monsters only
 
         int x = (int) Math.floor(event.x);
