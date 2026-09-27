@@ -1,9 +1,14 @@
 package com.jointspaceforce.umbra;
 
+import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.common.config.Configuration;
 import net.minecraftforge.event.entity.living.LivingSpawnEvent;
 
 import cpw.mods.fml.common.FMLLog;
@@ -15,14 +20,23 @@ import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Umbra — modern (1.18+) hostile-spawn light rule on 1.7.10, ALL dimensions.
+ * Umbra — modern hostile-spawn light rules on 1.7.10, ALL dimensions.
  *
- * Hostile mobs may naturally spawn ONLY where:
- * (a) BLOCK light == 0 (torch / glowstone / lava-lit spots are dead), AND
- * (b) SKY light <= 7 (true at night on the surface; always true in caves).
- * Result: torch-lit caves/bases are SAFE; the night surface still spawns;
- * the Nether/End/other dimensions follow the same modern rule (lava-lit
- * Nether spots are safe, dark Nether/End terrain still spawns).
+ * Per-dimension rules (matching modern Java Edition, wiki: Mob_spawning +
+ * Light#Mobs):
+ * (a) OVERWORLD: block light == 0 AND (night OR sky light <= 7) — torch-lit
+ * caves/bases are SAFE; the night surface still spawns.
+ * (b) NETHER: block light <= 7 (the modern nether rule — NOT 0; the nether is
+ * light-permissive by design).
+ * (c) END: block light == 0.
+ * (d) OTHER dims: configurable (default = overworld rule).
+ * Plus, matching modern per-mob spawn rules:
+ * (e) LAVA SPAWN RULE: a spawn position inside lava is allowed at any light
+ * (modern "strider" analog) — this is what lets modded lava dwellers
+ * (SpecialMobs' LavaMonster/LavaWebSpider) spawn, since their own spawner
+ * places them INTO lava (light 15).
+ * (f) EXEMPT ENTITY LIST (config): mobs that bypass the light rule entirely.
+ * Spawner-block spawns (dungeons, blaze cages) are never touched.
  *
  * Why reflection: GTNH 1.7.10's forge event classes reference the OBFUSCATED vanilla
  * classes at runtime, and there is no MCP-named minecraft jar on disk to compile
@@ -34,13 +48,26 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
  * ahb.b(Lahn;III)I = World.getSavedLightValue(EnumSkyBlock,int,int,int)
  * ahn.a = EnumSkyBlock.Sky ; ahn.b = EnumSkyBlock.Block
  * World field field_73011_w = provider ; WorldProvider field_76574_g = dimensionId
+ * Block.func_149688_o = getMaterial ; Material.field_151587_i = lava
  * net.minecraft.entity.monster.EntityMob resolves via the RFB deobf alias.
  */
-@Mod(modid = Umbra.MODID, name = "Umbra", version = "1.2.0", acceptableRemoteVersions = "*")
+@Mod(modid = Umbra.MODID, name = "Umbra", version = "1.3.0", acceptableRemoteVersions = "*")
 public class Umbra {
 
     public static final String MODID = "umbra";
     private static final int MAX_SKY_LIGHT = 7;
+
+    // ---- config (loaded from config/umbra.cfg in preInit) ----
+    private static volatile boolean cfgEnabled = true;
+    private static volatile boolean cfgDebug = false;
+    private static volatile boolean cfgLavaRule = true;
+    private static volatile Set<String> cfgExempt = new HashSet<>(
+        Arrays.asList("EntityLavaMonster", "EntityLavaWebSpider"));
+    private static volatile int cfgOverworldMax = 0;
+    private static volatile int cfgNetherMax = 7;
+    private static volatile int cfgEndMax = 0;
+    private static volatile int cfgOtherMax = 0;
+    private static volatile int cfgMaxSky = MAX_SKY_LIGHT;
 
     // cached reflective handles
     private static volatile Method getSavedLightValue; // (EnumSkyBlock,int,int,int)I
@@ -62,6 +89,8 @@ public class Umbra {
     private static volatile Method getWorldTimeMethod; // World.getWorldTime() -> long (day/night clock)
     private static volatile Method getBlockMethod; // World.getBlock(x,y,z) -> Block (spawner exemption)
     private static volatile Method getTileEntityMethod; // World.getTileEntity(x,y,z) -> TileEntity (spawner exemption)
+    private static volatile Method blockGetMaterial; // Block.getMaterial() -> Material (lava rule)
+    private static volatile Object materialLava; // Material.lava (SRG field_151587_i)
 
     private static void ensureInit() {
         if (getSavedLightValue != null || initAttempts >= MAX_INIT_ATTEMPTS) return;
@@ -151,12 +180,43 @@ public class Umbra {
                 FMLLog.warning("Umbra: spawner-exemption UNRESOLVABLE — spawner blocks may be affected (non-fatal)");
             }
 
+            // Lava rule handles: Block.getMaterial() + Material.lava. Resolved off
+            // getBlock's RETURN TYPE (same alias-gap trick as the sky enum) so we
+            // never Class.forName a class RFB may not cover.
+            if (getBlockMethod != null) {
+                Class<?> blockClass = getBlockMethod.getReturnType();
+                try {
+                    blockGetMaterial = blockClass.getMethod("func_149688_o");
+                } catch (NoSuchMethodException ignored) {
+                    try {
+                        blockGetMaterial = blockClass.getMethod("getMaterial");
+                    } catch (NoSuchMethodException ignored2) {}
+                }
+                if (blockGetMaterial != null) {
+                    Class<?> materialClass = blockGetMaterial.getReturnType();
+                    try {
+                        Field f = materialClass.getField("field_151587_i");
+                        materialLava = f.get(null);
+                    } catch (Throwable ignored) {
+                        try {
+                            materialLava = materialClass.getField("lava")
+                                .get(null);
+                        } catch (Throwable ignored2) {}
+                    }
+                }
+            }
+            FMLLog.info("Umbra: lava-rule handles: getMaterial=%s materialLava=%s", blockGetMaterial, materialLava);
+
             // Dimension fields are diagnostic-only now (dimOf in logs). The rule
             // applies to ALL dimensions, so a missing dimension gate must NOT
             // disarm the mod — the light checks above are what matter.
             armed = true;
             FMLLog.info(
-                "Umbra: ARMED — modern rule live (ALL dims: block light == 0; sky-gate only during DAY). method=%s, skyEnum=%s, blockConst=%s, skyConst=%s, providerField=%s, dimIdField=%s, hostileCheck=%s, worldTime=%s, block=%s, tileEntity=%s",
+                "Umbra: ARMED — modern per-dimension rules live (overworld block=0+sky<=%d; nether block<=%d; end block=0; lava rule=%s; exempt=%s). method=%s, skyEnum=%s, blockConst=%s, skyConst=%s, providerField=%s, dimIdField=%s, hostileCheck=%s, worldTime=%s, block=%s, tileEntity=%s",
+                cfgMaxSky,
+                cfgNetherMax,
+                cfgLavaRule,
+                cfgExempt,
                 m.getName(),
                 skyEnum.getName(),
                 constName(enumSkyBlockBlock),
@@ -259,14 +319,56 @@ public class Umbra {
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
+        loadConfig(event.getSuggestedConfigurationFile());
         MinecraftForge.EVENT_BUS.register(this);
         ensureInit();
+    }
+
+    /** config/umbra.cfg — loaded once at preInit; defaults = modern rules. */
+    private static void loadConfig(File file) {
+        try {
+            Configuration cfg = new Configuration(file);
+            cfg.load();
+            cfgEnabled = cfg.getBoolean("enabled", "general", true, "Master switch for the light rules.");
+            cfgDebug = cfg.getBoolean("debugLogging", "general", false, "Log more allow samples (60 instead of 30).");
+            cfgLavaRule = cfg.getBoolean(
+                "allowLavaSpawns",
+                "general",
+                true,
+                "Allow spawns whose position is inside lava regardless of light (modern strider-style rule; lets SpecialMobs lava monsters spawn).");
+            String[] exempt = cfg.getStringList(
+                "exemptEntities",
+                "general",
+                new String[] { "EntityLavaMonster", "EntityLavaWebSpider" },
+                "Entity class SIMPLE names that bypass the light rule entirely.");
+            cfgExempt = new HashSet<>(Arrays.asList(exempt));
+            cfgOverworldMax = cfg
+                .getInt("overworldMaxBlockLight", "light", 0, 0, 15, "Modern overworld: block light cap (0).");
+            cfgNetherMax = cfg.getInt("netherMaxBlockLight", "light", 7, 0, 15, "Modern nether: block light cap (7).");
+            cfgEndMax = cfg.getInt("endMaxBlockLight", "light", 0, 0, 15, "Modern end: block light cap (0).");
+            cfgOtherMax = cfg
+                .getInt("otherDimsMaxBlockLight", "light", 0, 0, 15, "Modded dimensions: block light cap (0).");
+            cfgMaxSky = cfg.getInt("maxSkyLight", "light", MAX_SKY_LIGHT, 0, 15, "Day-time sky light cap (7).");
+            if (cfg.hasChanged()) cfg.save();
+            FMLLog.info(
+                "Umbra: config loaded — enabled=%s lavaRule=%s exempt=%s caps[ow=%d nether=%d end=%d other=%d sky=%d]",
+                cfgEnabled,
+                cfgLavaRule,
+                cfgExempt,
+                cfgOverworldMax,
+                cfgNetherMax,
+                cfgEndMax,
+                cfgOtherMax,
+                cfgMaxSky);
+        } catch (Throwable t) {
+            FMLLog.warning("Umbra: config load FAILED (%s) — defaults in effect", t.toString());
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onCheckSpawn(LivingSpawnEvent.CheckSpawn event) {
         ensureInit();
-        if (!armed) return; // not safely armed -> vanilla
+        if (!armed || !cfgEnabled) return; // not safely armed / disabled -> vanilla
         Object world = event.world;
         if (world == null) return; // no world -> vanilla
         if (!isHostile(event.entityLiving)) return; // monsters only
@@ -278,35 +380,84 @@ public class Umbra {
         // NEVER block spawns coming from a spawner block (dungeons, blaze cages...).
         if (spawnerBlockAt(world, x, y, z)) return;
 
-        int block = savedLight(world, enumSkyBlockBlock, x, y, z);
-        int sky = savedLight(world, enumSkyBlockSky, x, y, z);
-        boolean day = worldDaytime(world);
         String who = entityName(event);
         int dim = dimOf(world);
 
-        // (a) torch/block light > 0 -> deny, always (the 1.18 core rule).
-        // (b) DURING DAY, sky-lit spots die too. At NIGHT the surface is allowed
-        // (raw skylight reads 15 even at night — the vanilla night-darkness
-        // lives in skylightSubtracted, not in the stored array).
-        if (block > 0 || (day && sky > MAX_SKY_LIGHT)) {
+        // (f) per-entity exemptions (config) — mobs with their own spawn rules.
+        if (cfgExempt.contains(who)) {
+            allowSample("exempt", who, dim, x, y, z, -1, -1, false);
+            return;
+        }
+
+        // (e) modern "lava spawn" rule: a position INSIDE lava is allowed at any
+        // light (strider analog). This is what lets modded lava dwellers spawn —
+        // their spawner places them into lava, which is light 15.
+        if (cfgLavaRule && lavaAt(world, x, y, z)) {
+            allowSample("lava", who, dim, x, y, z, -1, -1, false);
+            return;
+        }
+
+        int block = savedLight(world, enumSkyBlockBlock, x, y, z);
+        int sky = savedLight(world, enumSkyBlockSky, x, y, z);
+        boolean day = worldDaytime(world);
+        if (block < 0) return; // light unreadable -> vanilla behavior
+
+        // Per-dimension rules (modern Java Edition):
+        // (a) overworld: block == 0 AND (night OR sky <= 7)
+        // (b) nether: block <= 7 (no sky light exists there)
+        // (c) end: block == 0
+        // (d) other dims: configurable (default overworld rule)
+        int maxBlock = maxBlockFor(dim);
+        boolean useSkyGate = dim != -1; // the nether has no sky light
+        if (block > maxBlock || (useSkyGate && day && sky > cfgMaxSky)) {
             deny(event, who, dim, x, y, z, block, sky, day);
             return;
         }
 
-        // ALLOWED — sample the first N so the log SHOWS dark spawns happening.
-        if (allowSamplesLogged < 30) {
-            allowSamplesLogged++;
-            FMLLog.info(
-                "Umbra: ALLOW: entity=%s dim=%d pos=(%d,%d,%d) block=%d sky=%d day=%s",
-                who,
-                dim,
-                x,
-                y,
-                z,
-                block,
-                sky,
-                day);
+        allowSample("dark", who, dim, x, y, z, block, sky, day);
+    }
+
+    /** Modern per-dimension block-light caps (config-driven). */
+    private static int maxBlockFor(int dim) {
+        if (dim == 0) return cfgOverworldMax;
+        if (dim == -1) return cfgNetherMax;
+        if (dim == 1) return cfgEndMax;
+        return cfgOtherMax;
+    }
+
+    /** True when the spawn position (or the block above) is lava. */
+    private static boolean lavaAt(Object world, int x, int y, int z) {
+        if (blockGetMaterial == null || materialLava == null || getBlockMethod == null) return false;
+        try {
+            for (int yy = y; yy <= y + 1; yy++) {
+                Object block = getBlockMethod.invoke(world, x, yy, z);
+                if (block == null) continue;
+                Object mat = blockGetMaterial.invoke(block);
+                if (mat != null && mat == materialLava) return true;
+            }
+        } catch (Throwable t) {
+            return false; // never crash; worst case the light rule applies
         }
+        return false;
+    }
+
+    /** ALLOW sampling so the log SHOWS allowed spawns happening (proof of life). */
+    private static void allowSample(String why, String who, int dim, int x, int y, int z, int block, int sky,
+        boolean day) {
+        int cap = cfgDebug ? 60 : 30;
+        if (allowSamplesLogged >= cap) return;
+        allowSamplesLogged++;
+        FMLLog.info(
+            "Umbra: ALLOW (%s): entity=%s dim=%d pos=(%d,%d,%d) block=%d sky=%d day=%s",
+            why,
+            who,
+            dim,
+            x,
+            y,
+            z,
+            block,
+            sky,
+            day);
     }
 
     /** DENY + keep diagnostics counters so the log can PROVE the rule is live and why. */
