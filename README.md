@@ -1,5 +1,8 @@
 # Umbra
 
+> [!NOTE]
+> **Disclaimer:** The majority of this project was written by a Large Language Model (LLM). While prompted, built, and tested for reliability, please take note of this before downloading and using this mod. Constructive criticism is desired and greatly appreciated. I make no claims to be a bona fide Software Engineer nor pretend that this project makes me one.
+
 **Modern Minecraft hostile-spawn rules for GTNH 1.7.10 — server-side only.**
 
 Umbra makes hostile mobs spawn the way they do in modern Minecraft instead of
@@ -66,6 +69,17 @@ Requires JDK 25 (GTNH Gradle toolchain) and network access to the GTNH maven:
 JAVA_HOME=/opt/jdk-25 ./gradlew clean build --no-daemon
 # output: build/libs/umbra-<version>.jar
 ```
+
+CI (`.github/workflows/ci.yml`) builds Umbra on every push to `main` and then
+boots a throwaway dev server, failing the run unless it logs `Umbra: ARMED`
+(and nothing logs `DISARMED`). Security analysis (CodeQL + dependency graph
+submission) runs weekly and on pushes (`security.yml`).
+
+Releases are prepared by the `Release` workflow: dispatch it from the Actions
+tab (choose `auto`/`patch`/`minor`/`major`, plus an optional dry run), or push a
+`v*` tag. It generates grouped release notes from Conventional Commits, updates
+`CHANGELOG.md`, tags the release, builds the jar, and opens a **draft** GitHub
+release for review.
 
 ## Deploying (server)
 

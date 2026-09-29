@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Build (includes Spotless formatting + Checkstyle)
+        run: ./gradlew build --no-daemon
+
+      - name: Upload release jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: umbra-jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-dev.jar
+            !build/libs/*-sources.jar
+          if-no-files-found: error
+
+  smoke:
+    name: Server smoke test (Umbra must arm)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Prepare a throwaway server
+        run: |
+          mkdir -p run/server
+          echo "eula=true" > run/server/eula.txt
+          echo "eula=true" > run/eula.txt
+          printf 'online-mode=false\nlevel-name=umbra-ci\nspawn-protection=0\nmax-players=2\nview-distance=4\n' > run/server/server.properties
+          printf 'online-mode=false\n' > run/server.properties
+
+      - name: Boot the dev server (bounded) and verify Umbra armed
+        run: |
+          set -u
+          (timeout 900 ./gradlew runServer --no-daemon > server.log 2>&1 || true) &
+          found=0
+          for _ in $(seq 1 130); do
+            if grep -q "Umbra: ARMED" server.log 2>/dev/null; then found=1; break; fi
+            sleep 6
+          done
+          echo "=== umbra log lines ==="
+          grep -E "Umbra:" server.log || true
+          if [ "$found" != "1" ]; then
+            echo "::error::Umbra never reported ARMED"
+            tail -150 server.log
+            exit 1
+          fi
+          if grep -q "Umbra: DISARMED" server.log; then
+            echo "::error::Umbra reported DISARMED"
+            exit 1
+          fi
+          grep -q "Done (" server.log || { echo "::error::server never finished booting"; exit 1; }
+
+      - name: Upload server log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: umbra-smoke-server-log
+          path: server.log
+          if-no-files-found: warn
