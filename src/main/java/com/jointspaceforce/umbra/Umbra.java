@@ -330,7 +330,12 @@ public class Umbra {
             Configuration cfg = new Configuration(file);
             cfg.load();
             cfgEnabled = cfg.getBoolean("enabled", "general", true, "Master switch for the light rules.");
-            cfgDebug = cfg.getBoolean("debugLogging", "general", false, "Log more allow samples (60 instead of 30).");
+            cfgDebug = cfg.getBoolean(
+                "debugLogging",
+                "general",
+                false,
+                "Verbose decision logging. false (default) = quiet: about 5 sample lines per server start, then silence. "
+                    + "true = up to 60 allow samples and a line every 1000th denied spawn (for diagnosing).");
             cfgLavaRule = cfg.getBoolean(
                 "allowLavaSpawns",
                 "general",
@@ -441,10 +446,13 @@ public class Umbra {
         return false;
     }
 
-    /** ALLOW sampling so the log SHOWS allowed spawns happening (proof of life). */
+    /**
+     * ALLOW sampling: a few lines per boot as proof of life, then silence.
+     * Quiet mode (default): 5 samples, no repeats. Debug mode: 60 samples.
+     */
     private static void allowSample(String why, String who, int dim, int x, int y, int z, int block, int sky,
         boolean day) {
-        int cap = cfgDebug ? 60 : 30;
+        int cap = cfgDebug ? 60 : 5;
         if (allowSamplesLogged >= cap) return;
         allowSamplesLogged++;
         FMLLog.info(
@@ -460,12 +468,17 @@ public class Umbra {
             day);
     }
 
-    /** DENY + keep diagnostics counters so the log can PROVE the rule is live and why. */
+    /**
+     * DENY + counters so the log can prove the rule is live without spamming.
+     * Quiet mode (default): only the first 3 denials are printed, ever.
+     * Debug mode: first 10 + every 1000th (long-session diagnostics).
+     */
     private static void deny(LivingSpawnEvent.CheckSpawn event, String entity, int dim, int x, int y, int z, int block,
         int sky, boolean day) {
         event.setResult(Event.Result.DENY);
         deniedCount++;
-        if (deniedCount <= 10 || deniedCount % 1000 == 0) {
+        boolean wanted = cfgDebug ? (deniedCount <= 10 || deniedCount % 1000 == 0) : (deniedCount <= 3);
+        if (wanted) {
             FMLLog.info(
                 "Umbra: DENY #%d: entity=%s dim=%d pos=(%d,%d,%d) block=%d sky=%d day=%s",
                 deniedCount,

@@ -56,7 +56,10 @@ RFB runtime (SRG-first), with clear diagnostics:
 
 - `Umbra: ARMED — modern per-dimension rules live (...)` — rule active.
 - `Umbra: init FAILED (...)` — vanilla fallback, with the exact reason.
-- `ALLOW (dark|lava|exempt): ...` / `DENY #N: entity=...` — sampled decision log.
+- `ALLOW (dark|lava|exempt): …` / `DENY #N: …` — a **few** sample lines per
+  server start as proof of life, then **silence** (default). Set
+  `debugLogging=true` in `config/umbra.cfg` for verbose decisions (up to 60
+  allow samples + a line every 1000th denied spawn) when diagnosing.
 
 The mod is **fail-safe**: it only arms when the core light checks resolved; a
 partial state falls back to vanilla behavior and never crashes the server.
