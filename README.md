@@ -72,8 +72,9 @@ JAVA_HOME=/opt/jdk-25 ./gradlew clean build --no-daemon
 
 CI (`.github/workflows/ci.yml`) builds Umbra on every push to `main` and then
 boots a throwaway dev server, failing the run unless it logs `Umbra: ARMED`
-(and nothing reports `DISARMED`). Security analysis (CodeQL + dependency graph
-submission) runs weekly and on pushes (`security.yml`).
+(and nothing reports `DISARMED`). Dependency-graph submission runs weekly and
+on pushes (`security.yml`), feeding Dependabot alerts (enabled); weekly
+dependency PRs are auto-merged when green.
 
 Releases are prepared by the `Release` workflow: dispatch it from the Actions
 tab (choose `auto`/`patch`/`minor`/`major`, plus an optional dry run), or push a

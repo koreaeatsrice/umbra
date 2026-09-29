@@ -73,23 +73,23 @@ jobs:
         run: |
           set -u
           (timeout 900 ./gradlew runServer --no-daemon > server.log 2>&1 || true) &
-          found=0
+          booted=0
           for _ in $(seq 1 130); do
-            if grep -q "Umbra: ARMED" server.log 2>/dev/null; then found=1; break; fi
+            if grep -q "Done (" server.log 2>/dev/null; then booted=1; break; fi
             sleep 6
           done
           echo "=== umbra log lines ==="
           grep -E "Umbra:" server.log || true
-          if [ "$found" != "1" ]; then
-            echo "::error::Umbra never reported ARMED"
+          if [ "$booted" != "1" ]; then
+            echo "::error::server never finished booting"
             tail -150 server.log
             exit 1
           fi
+          grep -q "Umbra: ARMED" server.log || { echo "::error::Umbra never reported ARMED"; exit 1; }
           if grep -qE "Umbra:.*DISARMED" server.log; then
             echo "::error::Umbra reported DISARMED"
             exit 1
           fi
-          grep -q "Done (" server.log || { echo "::error::server never finished booting"; exit 1; }
 
       - name: Upload server log
         if: always()
