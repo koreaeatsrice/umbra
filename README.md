@@ -72,7 +72,7 @@ JAVA_HOME=/opt/jdk-25 ./gradlew clean build --no-daemon
 
 CI (`.github/workflows/ci.yml`) builds Umbra on every push to `main` and then
 boots a throwaway dev server, failing the run unless it logs `Umbra: ARMED`
-(and nothing logs `DISARMED`). Security analysis (CodeQL + dependency graph
+(and nothing reports `DISARMED`). Security analysis (CodeQL + dependency graph
 submission) runs weekly and on pushes (`security.yml`).
 
 Releases are prepared by the `Release` workflow: dispatch it from the Actions

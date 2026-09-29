@@ -51,7 +51,7 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
  * Block.func_149688_o = getMaterial ; Material.field_151587_i = lava
  * net.minecraft.entity.monster.EntityMob resolves via the RFB deobf alias.
  */
-@Mod(modid = Umbra.MODID, name = "Umbra", version = "1.3.0", acceptableRemoteVersions = "*")
+@Mod(modid = Umbra.MODID, name = "Umbra", version = Tags.VERSION, acceptableRemoteVersions = "*")
 public class Umbra {
 
     public static final String MODID = "umbra";
