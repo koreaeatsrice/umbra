@@ -370,8 +370,22 @@ public class Umbra {
         }
     }
 
+    /** Log the first spawn-check failure only — a broken environment must not spam. */
+    private static boolean spawnHandlerFailureLogged = false;
+
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onCheckSpawn(LivingSpawnEvent.CheckSpawn event) {
+        try {
+            handleCheckSpawn(event);
+        } catch (Throwable failure) {
+            if (!spawnHandlerFailureLogged) {
+                spawnHandlerFailureLogged = true;
+                FMLLog.severe("Umbra: spawn check failed (%s) — leaving spawns to vanilla", failure.toString());
+            }
+        }
+    }
+
+    private void handleCheckSpawn(LivingSpawnEvent.CheckSpawn event) {
         ensureInit();
         if (!armed || !cfgEnabled) return; // not safely armed / disabled -> vanilla
         Object world = event.world;

@@ -51,17 +51,23 @@ jobs:
       - name: Run Release Engine
         id: engine
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BUMP: ${{ inputs.bump }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             git config user.name "uriel-runner[bot]"
             git config user.email "uriel-runner[bot]@users.noreply.github.com"
             DRY_RUN_ARG=""
-            if [ "${{ inputs.dry_run }}" = "true" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
               DRY_RUN_ARG="--dry-run"
             fi
-            python .github/scripts/release.py --bump "${{ inputs.bump }}" $DRY_RUN_ARG --repo "${{ github.repository }}"
+            python .github/scripts/release.py --bump "$BUMP" $DRY_RUN_ARG --repo "$REPO"
           else
-            python .github/scripts/release.py --current-tag "${{ github.ref_name }}" --repo "${{ github.repository }}"
+            python .github/scripts/release.py --current-tag "$REF_NAME" --repo "$REPO"
           fi
 
       - name: Upload Release Notes
@@ -139,11 +145,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
-          gh release create "${{ needs.prepare.outputs.tag }}" \
+          gh release create "$TAG" \
             release-assets/*.jar \
-            --repo "${{ github.repository }}" \
-            --title "${{ needs.prepare.outputs.tag }}" \
+            --repo "$REPO" \
+            --title "$TAG" \
             --notes-file release-assets/RELEASE_NOTES.md \
             --draft \
             --verify-tag
