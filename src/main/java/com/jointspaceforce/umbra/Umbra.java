@@ -290,6 +290,7 @@ public class Umbra {
     }
 
     private static boolean isHostile(Object entity) {
+        if (entity == null) return false;
         if (entityMobClass != null) return entityMobClass.isInstance(entity);
         // Fallback when the class alias is missing: walk the REAL superclass chain.
         // Vanilla and GTNH-modded hostiles all carry the MCP name in their chain
