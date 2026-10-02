@@ -9,8 +9,10 @@ import unittest
 
 from release import (
     Commit,
+    DEFAULT_CONTRIBUTOR,
     calculate_next_version,
     categorize_commits,
+    contributor_handle,
     generate_release_notes,
     last_tag,
     parse_semver,
@@ -115,8 +117,59 @@ class TestReleaseEngine(unittest.TestCase):
             notes,
         )
         self.assertIn("### Contributors", notes)
-        self.assertIn("- Uriel", notes)
+        self.assertIn("- @Uriel", notes)
+        self.assertIn("- @koreaeatsrice", notes)
         self.assertIn("https://github.com/koreaeatsrice/umbra/compare/v1.3.0...v1.4.0", notes)
+
+    def test_contributor_handle_noreply_email(self):
+        self.assertEqual(
+            contributor_handle("Someone", "1234567+someone@users.noreply.github.com"), "@someone"
+        )
+        self.assertEqual(
+            contributor_handle("Someone", "someone@users.noreply.github.com"), "@someone"
+        )
+        self.assertEqual(contributor_handle("Uriel", "uriel@example.com"), "@Uriel")
+        self.assertEqual(
+            contributor_handle("", "123+ghost@users.noreply.github.com"), "@ghost"
+        )
+        self.assertEqual(contributor_handle("", ""), "@")
+
+    def test_contributors_always_include_owner(self):
+        commits = [
+            Commit(
+                "aaaaaaa1",
+                "fix: bot change",
+                "",
+                "fix",
+                None,
+                False,
+                "bot change",
+                "uriel-runner[bot]",
+                "uriel-runner[bot]@users.noreply.github.com",
+            ),
+        ]
+        notes = generate_release_notes("1.4.0", "v1.3.0", commits, repo="koreaeatsrice/umbra")
+        self.assertIn("### Contributors", notes)
+        self.assertIn("- @koreaeatsrice", notes)
+        self.assertIn("- @uriel-runner[bot]", notes)
+
+    def test_contributors_no_duplicate_owner(self):
+        commits = [
+            Commit(
+                "bbbbbbb2",
+                "feat: owner change",
+                "",
+                "feat",
+                None,
+                False,
+                "owner change",
+                "koreaeatsrice",
+                "999+koreaeatsrice@users.noreply.github.com",
+            ),
+        ]
+        notes = generate_release_notes("1.4.0", "v1.3.0", commits, repo="koreaeatsrice/umbra")
+        self.assertEqual(notes.count("- @koreaeatsrice"), 1)
+        self.assertEqual(DEFAULT_CONTRIBUTOR, "koreaeatsrice")
 
     def test_update_changelog(self):
         sample = """# Changelog

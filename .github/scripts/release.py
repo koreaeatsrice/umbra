@@ -45,6 +45,10 @@ CATEGORY_MAPPING = {
     "chore": "Maintenance & CI",
 }
 
+# The repository owner is always credited in the release notes, even when
+# every commit is authored by the automation bot.
+DEFAULT_CONTRIBUTOR = "koreaeatsrice"
+
 SECTION_ORDER = [
     "Breaking Changes ⚠️",
     "Features",
@@ -165,6 +169,18 @@ def categorize_commits(commits: List[Commit]) -> Dict[str, List[Commit]]:
     return {k: v for k, v in categories.items() if v}
 
 
+def contributor_handle(name: str, email: str) -> str:
+    """The GitHub @handle for a commit identity.
+
+    GitHub noreply addresses embed the username; fall back to the display
+    name so no contributor is dropped.
+    """
+    m = re.match(r"^(?:\d+\+)?([^@+]+)@users\.noreply\.github\.com$", (email or "").strip(), re.IGNORECASE)
+    if m:
+        return "@" + m.group(1)
+    return "@" + (name or "").strip()
+
+
 def _commit_line(c: Commit, repo: str) -> str:
     link = f"[`{c.sha[:7]}`](https://github.com/{repo}/commit/{c.sha})"
     if c.scope:
@@ -182,15 +198,17 @@ def generate_release_notes(version: str, since: Optional[str], commits: List[Com
 
     contributors: List[str] = []
     for c in commits:
-        handle = c.author_name
-        if handle and handle not in contributors:
+        handle = contributor_handle(c.author_name, c.author_email)
+        if handle != "@" and handle not in contributors:
             contributors.append(handle)
-    if contributors:
-        lines.append("### Contributors")
-        lines.append("")
-        for name in contributors:
-            lines.append(f"- {name}")
-        lines.append("")
+    owner = "@" + DEFAULT_CONTRIBUTOR
+    if owner not in contributors:
+        contributors.append(owner)
+    lines.append("### Contributors")
+    lines.append("")
+    for handle in contributors:
+        lines.append(f"- {handle}")
+    lines.append("")
 
     if since:
         lines.append(f"**Full changelog**: https://github.com/{repo}/compare/{since}...v{version}")
